@@ -155,7 +155,6 @@ pre-installed binary works.
 
 ### API Client Generation
 - `./generate-client.sh desktop <output-dir>` - Generate TypeScript Angular client
-- `./generate-client.sh mobile <output-dir>` - Generate Dart Dio client
 
 ### Go Toolchain
 - Requires **Go 1.26.8+** — `api/go.mod` declares `go 1.26.8`, which `golang.org/x/crypto v0.56.0`
@@ -438,18 +437,18 @@ will be dropped in a later release.
   mirrored in the `swagger.yml` `Permission` enum. `permissions/registry_test.go` enforces that the
   registry and the swagger enum stay in sync.
 - **Adding a permission:** add the constant + `Descriptor` in `registry.go`, add the key to the
-  `Permission` enum in `swagger.yml`, then regenerate clients (see "API Client Generation") —
-  **including `mobile/api/`, in the same change**. A `ScopeGroup` key is picked up automatically by
+  `Permission` enum in `swagger.yml`, then regenerate clients (see "API Client Generation")
+  in the same change. A `ScopeGroup` key is picked up automatically by
   the seeded **Legacy Owner** (`LegacyGroupOwnerKeys()` = every group-scope key) on the next boot, so
   it lands in essentially every user's `AppData` the moment the server upgrades.
 - **Catalog vs. data — do not `$ref` the `Permission` enum onto `AppData`.** The enum is the
   **catalog** of which permissions exist (`Role.permissions`, `UpsertRoleCommand.permissions`,
   `PermissionDescriptor.key`, the `permission` query param). A user's **effective** permissions
   (`AppData.appPermissions` / `.groupPermissions`) are server-resolved **data** and ride as plain
-  `type: string`. Generated clients render an enum as a *closed* set — the Dart `EnumClass` throws on
-  an unknown value and fails the entire `AppData` parse, which hard-fails login on every
-  already-released mobile build. That shipped twice (2026-07-24 `group.members.create`; 2026-08-06
-  `group.members.grants.update`). Granted strings may also be **wildcards** (see "Matcher"), which an
+  `type: string`. Generated clients render an enum as a *closed* set — an unknown value fails the
+  entire `AppData` parse, which hard-fails login. That shipped twice (2026-07-24
+  `group.members.create`; 2026-08-06 `group.members.grants.update`). Granted strings may also be
+  **wildcards** (see "Matcher"), which an
   enum cannot represent. Pinned by `permissions/registry_test.go` →
   `TestAppDataEffectivePermissionsAreUntypedStrings`.
 
@@ -820,7 +819,7 @@ a role never widens an individually-assigned member.
   restricted user edits a receipt. Closing that needs item identity (a separate change).
 - **Moving a receipt between groups authorizes the DESTINATION.** `UpdateReceipt` runs through
   `HandleRequest` with `ReceiptId` set, which only verifies `group.receipts.update` on the receipt's
-  **current** group. Both clients let a user change a receipt's group on edit, so when
+  **current** group. The desktop client lets a user change a receipt's group on edit, so when
   `command.GroupId != currentReceipt.GroupId` the handler additionally requires `group.receipts.create`
   on the destination group (403 otherwise) and runs the grant / member-visibility **selection** checks
   against the destination (the group the receipt will live in). Without this a member with update rights
@@ -1304,15 +1303,15 @@ and the difference matters:
   resolved by the clamp on read.
 
 **It is an inactivity timeout, not an absolute session cap.** Refresh tokens rotate on every use and
-both clients proactively refresh on a 15-minute timer, so an actively-used session re-mints itself
+the desktop client proactively refreshes on a 15-minute timer, so an actively-used session re-mints itself
 indefinitely; the window only bites once a client has been away longer than it. There is no
 absolute cap — adding one would need a session-start timestamp threaded through every rotation.
 A useful corollary: **lowering** the setting takes effect for active sessions at their next refresh
 (~15 min), so only genuinely idle sessions coast on their original expiry. Nothing is bulk-revoked.
 
 **The access token is deliberately NOT configurable** and stays at 20 minutes
-(`utils.GetAccessTokenExpiryDate`). It is stateless and unrevocable, and both clients size their
-15-minute refresh timer against that fixed window — making it configurable would break them and
+(`utils.GetAccessTokenExpiryDate`). It is stateless and unrevocable, and the desktop client sizes its
+15-minute refresh timer against that fixed window — making it configurable would break it and
 widen the blast radius of a leaked token. This is also why `oauth.accessTokenExpiresIn` (the OAuth
 `expires_in`, RFC 6749 — which describes the access token only) still mirrors 20 minutes correctly.
 
@@ -1745,8 +1744,7 @@ The `receiptwrangler.io/app/setup` host/path is a fixed, project-owned constant 
 with the mobile App Link config and the `.well-known/assetlinks.json` / `apple-app-site-association`
 files hosted on **receiptwrangler.io** (served from that domain's own nginx/docs infra — not this
 repo; the same layer also serves a `/app/setup` platform redirect for the app-not-installed fallback).
-See `mobile/CLAUDE.md` → "App Links / Universal Links — server-URL pre-fill (login)". Tests:
-`commands/upsert_system_settings_command_test.go` (validation), `services/system_settings_test.go`
+Tests: `commands/upsert_system_settings_command_test.go` (validation), `services/system_settings_test.go`
 (`BuildLoginQrUrl` compose/encoding + `GetFeatureConfig` mapping).
 
 ## System task filtering
@@ -1878,7 +1876,7 @@ stored when the receipt was created. The form, Quick Scan, email and duplicate a
 - Why it stays version 1: a change that writes no update row, such as a bulk status change, falls
   inside a rebuilt comparison, and a version 2 row's own "before" would not have it.
 - Why on read: `resultDescription` is a free-form string, so there is no swagger change or client
-  regeneration. Mobile never reads it. And the stored history is never rewritten.
+  regeneration. The stored history is never rewritten.
 - Only the System Tasks listing does this; `getPagedActivities` doesn't display descriptions.
 
 Tests: `services/receipt_update_history_test.go` covers the matching rules, and
@@ -1899,8 +1897,8 @@ edits, which nothing forces to agree with each other:
    quick-scan default and the receipt summary's breakdown set), and
    `repositories/group_receipt_settings.go` `canonicalStatusOrder`, which orders a group's configured
    summary statuses by this list rather than alphabetically,
-4. the `ReceiptStatus` enum in `swagger.yml` — then regenerate **both** clients, `mobile/api/`
-   included, in the same change (see "API Client Generation").
+4. the `ReceiptStatus` enum in `swagger.yml` — then regenerate the desktop client in the same
+   change (see "API Client Generation").
 
 `models/receipt_status_test.go` → `TestReceiptStatuses` asserts the exact list **and order**, so it
 fails by design on any addition. Update it rather than weakening it.
@@ -1936,8 +1934,8 @@ both the request and the response, so one schema edit covers both directions. Th
 the JWT, never the body. Gated by `app.user-preferences.read` / `.update`, both in the Legacy User
 set.
 
-The whole object also rides on **AppData** (`services/auth.go`), which is how the desktop and mobile
-read it without a second request.
+The whole object also rides on **AppData** (`services/auth.go`), which is how the desktop reads it
+without a second request.
 
 **`UpdateUserPreferences` copies the request onto the stored row one field at a time** - a new field
 that is not added to that block silently never persists: no compile error, and nothing else in the
@@ -1947,13 +1945,13 @@ transaction, so GORM emits the column (including a `false`, which the struct for
 skip) as soon as the model field exists.
 
 Because the body is unmarshalled with `encoding/json` and nothing sets `DisallowUnknownFields`, a
-**removed** field sent by an already-released mobile build is ignored rather than rejected, and an
+**removed** field sent by a client is ignored rather than rejected, and an
 **omitted** field decodes to its zero value - so for a bool, "omitted" and "explicitly false" reach
 the repository identically. Both are pinned in `models/user_preferences_test.go`.
 
 Current fields: the three quick-scan defaults, `userShortcuts`, and `closeChipSelectOnSelect` (a
 desktop-only behavior flag for the multi-select chip pickers - see `desktop/CLAUDE.md` -> "The chip
-picker's close-on-select preference"; mobile carries the generated field but never reads it).
+picker's close-on-select preference").
 
 ## Quick Scan Field Configuration
 
@@ -1976,7 +1974,7 @@ a real paid-by and status — neither field is ever null/empty**. This is why th
 - **Comment (`QuickScanCommentEnabled` / `QuickScanCommentRequired`)** captures a receipt comment at
   scan time. Two things gate it beyond its own toggle, both resolved in **one** place per runtime so
   they can't drift — `GroupReceiptSettings.IsQuickScanCommentShown()` / `IsQuickScanCommentRequired()`
-  on the server, and `resolveQuickScanFieldConfig` on both clients:
+  on the server, and `resolveQuickScanFieldConfig` on the desktop:
   - **`HideComments`** (the group-wide "hide comments" setting) overrides the toggle. It is derived,
     never written: the stored toggles are untouched, so turning `HideComments` off restores them. The
     desktop config UI greys the two checkboxes out for the same reason — which is why its `submit()`
@@ -1991,8 +1989,8 @@ a real paid-by and status — neither field is ever null/empty**. This is why th
     default-off config costs no extra queries.
   - **Required is enforced strictly**, like categories/tags: a client that omits `comments` while the
     group requires one gets a 400. Backwards compatibility comes from the columns defaulting to
-    `false/false`, so an already-released mobile build is unaffected until an admin opts in — at which
-    point those builds must update. The desktop config UI says so inline.
+    `false/false`, so existing clients are unaffected until an admin opts in. The desktop config UI
+    says so inline.
 - **Config validation** (`commands/update_group_receipt_settings_command.go` `Validate`, now wired into
   the handler): a default is **required** for paid-by/status unless `(enabled && required)`; categories/
   tags/comment never need a default (empty is fine).
@@ -2011,8 +2009,8 @@ a real paid-by and status — neither field is ever null/empty**. This is why th
   and Postgres both measure in *characters*, so a `len()` check would be stricter than the column it
   mirrors and would reject an accented or non-Latin comment well inside its real capacity. The limit
   is published on the contract as `maxLength: 500` on `QuickScanCommand.comments.items` (OpenAPI
-  measures `maxLength` in characters too), and both clients cap at 500 client-side — desktop via
-  `Validators.maxLength`, mobile via `FormBuilderTextField.maxLength`.
+  measures `maxLength` in characters too), and the desktop client caps at 500 client-side via
+  `Validators.maxLength`.
   `ReceiptService.QuickScan` **appends** it to `receiptCommand.Comments` (with `UserId` set — a nil one
   fails `UpsertCommentCommand.Validate` and would take the whole receipt down) rather than replacing:
   the default prompt doesn't emit comments, but the AI response is unmarshalled straight into an
@@ -2103,7 +2101,7 @@ settings and the permission are read only when a flag is on. The batched
 (`map[groupId]ReceiptRequirements`) from the groups' preloaded settings and the loop's already
 resolved group permissions, still one query. Only groups where something is required are present
 (absent ⇒ nothing required); the map is never `null` (`{}` when empty). It is deliberately **not** in
-AppData's swagger `required` list, so a newer mobile build can still parse an older server's payload.
+AppData's swagger `required` list, so a newer client can still parse an older server's payload.
 
 ### `POST /receipt/withFiles` (`createReceiptWithFiles`)
 
@@ -2135,8 +2133,8 @@ never let it) and the create is atomic.
   spill to temp files, which net/http removes after the request). The real cap is nginx's
   `client_max_body_size 50M` in `docker/default.conf`, which now bounds **all** of a create's images
   together, as it already does for a multi-file quick scan.
-- **The old `POST /receipt/` stays** (`deprecated: true` in swagger) for already-released mobile
-  builds. It enforces the same requirements with an image count of 0, so while an image is required
+- **The old `POST /receipt/` stays** (`deprecated: true` in swagger). It enforces the same
+  requirements with an image count of 0, so while an image is required
   it always 400s — with a `files` message telling the user to **update their app**.
 
 ### Where the requirement is enforced
@@ -2281,9 +2279,9 @@ this screen. `UpdateGroupReceiptSettingsCommand.Validate` therefore checks nothi
     `commands/paged_api_key_request_command_test.go`,
     `repositories/api_key_test.go` (`TestGetPagedApiKeys_UnknownFilterFailsClosedToOwnKeys`).
 - **An empty set must serialize as `[]`, never `null`.** `defaultCustomFieldIdsOrEmpty` normalizes it
-  inside the loader (mirroring `grantIdsOrEmpty`) so every read path is covered at once. The
-  generated Dart deserializer has **no null guard**, so a `null` would fail the **whole** AppData
-  payload on already-released Android builds — the exact class of the two documented login outages.
+  inside the loader (mirroring `grantIdsOrEmpty`) so every read path is covered at once. A `null`
+  fails deserialization of the whole AppData payload — the exact class of the two documented login
+  outages.
   Guarded by a `json.Marshal` test in `repositories/group_receipt_settings_test.go` and a
   response-shape test in `handlers/group_default_custom_fields_test.go`.
 - **Command semantics: BOTH new fields are POINTERS, and `nil` means LEAVE UNCHANGED.**
@@ -2331,9 +2329,9 @@ this screen. `UpdateGroupReceiptSettingsCommand.Validate` therefore checks nothi
   - `wranglerasynq/email_process_handler.go` — after `command.CreatedByString = "Email Integration"`.
   `services/import.go` deliberately does **not** apply defaults — it replays existing receipts.
   `rerun_task_payload.go` routes through `ReceiptService.QuickScan`, so it inherits the behaviour.
-- **Users without `app.custom-fields.read` are gated out client-side**: the desktop and mobile
-  receipt forms skip ids absent from their loaded catalog, which is empty without the permission, so
-  their save would never have passed `enforceReceiptCustomFieldSelection` anyway.
+- **Users without `app.custom-fields.read` are gated out client-side**: the desktop receipt form
+  skips ids absent from its loaded catalog, which is empty without the permission, so a save would
+  never have passed `enforceReceiptCustomFieldSelection` anyway.
 - **Tests**: `repositories/group_receipt_settings_test.go` (round-trip, replace, `[]` clears, `nil`
   leaves both unchanged, `json.Marshal` gives `[]`, the not-blanked custom field name, the batched
   loader across two groups, `GetGroupById` hydration), `repositories/custom_fields_test.go` (a
@@ -2374,7 +2372,7 @@ still has `ID == 0` on the call that created it).
 **`LoadDefaultCustomFieldIds` is now `LoadSettingsProjections`** (and `…ForGroups`), and loads **all
 three** projections. The rename was deliberate: it makes the compiler find every call site, and
 loading them together means no caller can hydrate one and miss another — which would emit a `null`
-where swagger promises an array, the failure that only shows up on an already-released mobile build.
+where swagger promises an array, the failure that only shows up on a client that rejects null.
 The `[]`-never-`null` rule covers all three.
 
 **The command's three fields are pointers**, `nil` == leave unchanged, each for its own reason:
@@ -2402,18 +2400,17 @@ setting existed, so an install that never touches it is unchanged. Modelled on
 is **no migration**.
 
 - **It rides on the summary RESPONSE, not just on the settings.** `ReceiptSummary.Position` is
-  what both clients render from. The same argument as `Enabled`: a client's cached
+  what the desktop renders from. The same argument as `Enabled`: a client's cached
   `groupReceiptSettings` is stale the moment an admin changes the configuration, and placement is
   configuration. Reading it from the response is what stops the block rendering in the old place
   until the next AppData refresh.
-- **The server never emits `""`.** A closed Dart `EnumClass` throws on an unrecognized wire value
-  and fails the WHOLE payload — `GroupReceiptSettings` rides on AppData, i.e. on **login**, which
-  is exactly the two documented `Permission` outages. Empty is genuinely reachable (`loadSettings`
-  maps a missing settings row to a *zero* `GroupReceiptSettings`), so `OrDefault()` normalizes it
-  at both emit points: on the summary response, and in `LoadSettingsProjections` — the one batched
-  hydrator every settings read passes through. **The swagger enum carries TOP and BOTTOM only** —
-  no `""` member, matching the `CurrencySymbolPosition` precedent beside it — and the generated
-  Dart enum's `fallback: true` sits on `BOTTOM`, so a client meeting a value added *later* lands on
+- **The server never emits `""`.** A closed enum throws on an unrecognized wire value and fails the
+  WHOLE payload — `GroupReceiptSettings` rides on AppData, i.e. on **login**, which is exactly the
+  two documented `Permission` outages. Empty is genuinely reachable (`loadSettings` maps a missing
+  settings row to a *zero* `GroupReceiptSettings`), so `OrDefault()` normalizes it at both emit
+  points: on the summary response, and in `LoadSettingsProjections` — the one batched hydrator every
+  settings read passes through. **The swagger enum carries TOP and BOTTOM only** — no `""` member,
+  matching the `CurrencySymbolPosition` precedent beside it. An unknown value degrades to `BOTTOM`,
   the same placement `OrDefault()` would have sent. Client and server agree by construction, and an
   empty position is not expressible on the write side at all.
 - **The command field is a pointer**, like the other three: a non-pointer would unmarshal to `""`
@@ -2523,13 +2520,12 @@ make that work; both have a sharp edge.
 unconditionally, not only under `fullReceipts`. `FULL_RECEIPT_ASSOCIATIONS` is composed from the same
 constant so the two lists cannot drift.
 
-**Loading the values without their definitions breaks the mobile app.**
+**Loading the values without their definitions breaks list deserialization.**
 `models.CustomFieldValue.CustomField` is a non-pointer struct with no `omitempty`, so it serializes
-even when unloaded — as `{"id":0,"name":"","type":""}`. Mobile calls this exact endpoint
-(`getReceiptsForGroup`) and deserializes each row into a typed `Receipt`; its generated
-`CustomFieldType` is a closed enum with no empty member, and the `one_of` `AnyOfSerializer` swallows
-the failure rather than reporting it, so every row of the receipts list silently collapses. Same
-failure mode as the `aggFunc` omitempty fix — see `mobile/CLAUDE.md` → "Serialization contract".
+even when unloaded — as `{"id":0,"name":"","type":""}`. This endpoint
+(`getReceiptsForGroup`) returns each row as a typed receipt; `CustomFieldType` is a closed set with
+no empty member, and a serializer that swallows the failure rather than reporting it makes every row
+of the receipts list silently collapse. Same failure mode as the `aggFunc` omitempty fix.
 `TestPagedReceiptCustomFieldsAlwaysCarryTheirDefinition` asserts the response never contains
 `"type":""`.
 
@@ -2833,10 +2829,9 @@ picker.
   field is `json:"dateField,omitempty"`. Templates are stored with `json.Marshal`, and the tag keeps an
   empty value out of the blob instead of storing `""`.
 - **It is a plain `type: string` in swagger, deliberately not an enum.** `ReportPeriod` rides inside
-  `ReportTemplate.configuration`, a response the mobile client deserializes. A closed dart-dio enum
-  would throw on the first date key added later and fail the whole template payload on every
-  already-released build. `TestReportPeriodDateFieldIsAnOpenStringOnTheContract` parses `swagger.yml`
-  to hold that.
+  `ReportTemplate.configuration`. A closed enum would throw on the first date key added later and
+  fail the whole template payload on every already-released build.
+  `TestReportPeriodDateFieldIsAnOpenStringOnTheContract` parses `swagger.yml` to hold that.
 - **Adding a date key** means `ReceiptDateFilterKeys()`, `DateFilterField`, the swagger description,
   and desktop's `RECEIPT_DATE_FILTER_FIELDS`. `TestReceiptDateFilterKeys` pins the list, and
   `TestReceiptDateFilterKeysAreFilterJsonKeys` checks it against the struct by reflection.

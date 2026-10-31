@@ -83,7 +83,6 @@ EXPOSE 80
 # build toolchain; libsecret-1-dev is required to build the
 # flutter_secure_storage_linux plugin (pkg-config fails CMake without it);
 # xvfb lets the integration_test suite run headlessly under `xvfb-run`.
-# See mobile/CLAUDE.md > E2E Testing for the full rationale.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       unzip zip clang cmake ninja-build libgtk-3-dev libsecret-1-dev xvfb \
     && rm -rf /var/lib/apt/lists/*
@@ -105,12 +104,9 @@ RUN flutter --version \
     && flutter config --no-analytics \
     && flutter config --enable-linux-desktop
 
-# Warm the Linux-desktop engine cache and the mobile pub cache so the first
-# `./run-e2e.sh` inside the container doesn't re-download ~500MB of artifacts.
+# Warm the Linux-desktop engine cache so the first run inside the container
+# doesn't re-download ~500MB of artifacts.
 RUN flutter precache --linux --no-ios --no-android --no-web --no-macos --no-windows
-WORKDIR /app/mobile
-RUN flutter pub get
-WORKDIR /app
 
 # Setup SSH
 RUN apt-get update
