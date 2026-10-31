@@ -150,6 +150,24 @@ func TestUpsertSystemSettingsCommand_Validate_ValidInputs(t *testing.T) {
 				return cmd
 			}(),
 		},
+		"valid with the legacy sync path": {
+			command: func() UpsertSystemSettingsCommand {
+				cmd := validSystemSettingsCommand()
+				path := models.SyncPathLegacyWithDeptFallback
+				fallback := uint(100)
+				cmd.SyncPath = &path
+				cmd.InactiveDeptFallbackId = &fallback
+				return cmd
+			}(),
+		},
+		"valid with the strict sync path": {
+			command: func() UpsertSystemSettingsCommand {
+				cmd := validSystemSettingsCommand()
+				path := models.SyncPathV2Strict
+				cmd.SyncPath = &path
+				return cmd
+			}(),
+		},
 	}
 
 	for testName, test := range tests {
@@ -281,16 +299,34 @@ func TestUpsertSystemSettingsCommand_Validate_InvalidInputs(t *testing.T) {
 			expectedError: "mcpRefreshTokenValidForHours",
 		},
 		"temp file retention below the floor": {
-			modify:        func(cmd *UpsertSystemSettingsCommand) { cmd.TempFileRetentionHours = intPtr(MinTempFileRetentionHours - 1) },
+			modify: func(cmd *UpsertSystemSettingsCommand) {
+				cmd.TempFileRetentionHours = intPtr(MinTempFileRetentionHours - 1)
+			},
 			expectedError: "tempFileRetentionHours",
 		},
 		"temp file retention above the ceiling": {
-			modify:        func(cmd *UpsertSystemSettingsCommand) { cmd.TempFileRetentionHours = intPtr(MaxTempFileRetentionHours + 1) },
+			modify: func(cmd *UpsertSystemSettingsCommand) {
+				cmd.TempFileRetentionHours = intPtr(MaxTempFileRetentionHours + 1)
+			},
 			expectedError: "tempFileRetentionHours",
 		},
 		"negative temp file retention": {
 			modify:        func(cmd *UpsertSystemSettingsCommand) { cmd.TempFileRetentionHours = intPtr(-1) },
 			expectedError: "tempFileRetentionHours",
+		},
+		"unknown sync path": {
+			modify: func(cmd *UpsertSystemSettingsCommand) {
+				path := "nightly"
+				cmd.SyncPath = &path
+			},
+			expectedError: "syncPath",
+		},
+		"blank sync path": {
+			modify: func(cmd *UpsertSystemSettingsCommand) {
+				path := ""
+				cmd.SyncPath = &path
+			},
+			expectedError: "syncPath",
 		},
 	}
 
@@ -409,27 +445,42 @@ func TestOmittedLifetimeColumnsNamesEveryUnsentField(t *testing.T) {
 		expected []string
 	}{
 		"all omitted": {
-			modify:   func(cmd *UpsertSystemSettingsCommand) {},
-			expected: []string{"RefreshTokenValidForHours", "McpRefreshTokenValidForHours", "TempFileRetentionHours"},
+			modify: func(cmd *UpsertSystemSettingsCommand) {},
+			expected: []string{
+				"RefreshTokenValidForHours",
+				"McpRefreshTokenValidForHours",
+				"TempFileRetentionHours",
+				"SyncPath",
+				"InactiveDeptFallbackId",
+			},
 		},
 		"retention sent, lifetimes omitted": {
 			modify: func(cmd *UpsertSystemSettingsCommand) {
 				cmd.TempFileRetentionHours = intPtr(48)
 			},
-			expected: []string{"RefreshTokenValidForHours", "McpRefreshTokenValidForHours"},
+			expected: []string{
+				"RefreshTokenValidForHours",
+				"McpRefreshTokenValidForHours",
+				"SyncPath",
+				"InactiveDeptFallbackId",
+			},
 		},
 		"lifetimes sent, retention omitted": {
 			modify: func(cmd *UpsertSystemSettingsCommand) {
 				cmd.RefreshTokenValidForHours = intPtr(24)
 				cmd.McpRefreshTokenValidForHours = intPtr(24)
 			},
-			expected: []string{"TempFileRetentionHours"},
+			expected: []string{"TempFileRetentionHours", "SyncPath", "InactiveDeptFallbackId"},
 		},
 		"all sent": {
 			modify: func(cmd *UpsertSystemSettingsCommand) {
 				cmd.RefreshTokenValidForHours = intPtr(24)
 				cmd.McpRefreshTokenValidForHours = intPtr(24)
 				cmd.TempFileRetentionHours = intPtr(48)
+				path := models.SyncPathV2Strict
+				fallback := uint(100)
+				cmd.SyncPath = &path
+				cmd.InactiveDeptFallbackId = &fallback
 			},
 			expected: []string{},
 		},
@@ -457,10 +508,13 @@ func TestOmittedLifetimeColumnsNamesEveryUnsentField(t *testing.T) {
 // than the misleading zero that ToSystemSettings' JSON round trip produces for a
 // nil pointer.
 func TestApplyOmittedLifetimesEchoesStoredValues(t *testing.T) {
+	fallback := uint(100)
 	existing := models.SystemSettings{
 		RefreshTokenValidForHours:    100,
 		McpRefreshTokenValidForHours: 200,
 		TempFileRetentionHours:       300,
+		SyncPath:                     models.SyncPathLegacyWithDeptFallback,
+		InactiveDeptFallbackId:       &fallback,
 	}
 
 	command := UpsertSystemSettingsCommand{TempFileRetentionHours: intPtr(48)}
@@ -473,5 +527,34 @@ func TestApplyOmittedLifetimesEchoesStoredValues(t *testing.T) {
 	}
 	if updated.TempFileRetentionHours != 48 {
 		t.Errorf("expected the sent retention to survive, got %d", updated.TempFileRetentionHours)
+	}
+	if updated.SyncPath != models.SyncPathLegacyWithDeptFallback {
+		t.Errorf("expected the omitted sync path to be carried forward, got %q", updated.SyncPath)
+	}
+	if updated.InactiveDeptFallbackId == nil || *updated.InactiveDeptFallbackId != 100 {
+		t.Errorf("expected the omitted fallback department to be carried forward, got %v", updated.InactiveDeptFallbackId)
+	}
+}
+
+func TestToSystemSettingsCopiesSyncSettings(t *testing.T) {
+	path := models.SyncPathV2Strict
+	fallback := uint(100)
+	command := UpsertSystemSettingsCommand{
+		SyncPath:               &path,
+		InactiveDeptFallbackId: &fallback,
+	}
+
+	settings, err := command.ToSystemSettings(1)
+	if err != nil {
+		t.Fatalf("ToSystemSettings: %v", err)
+	}
+	if settings.ID != 1 {
+		utils.PrintTestError(t, settings.ID, uint(1))
+	}
+	if settings.SyncPath != "v2-strict" {
+		utils.PrintTestError(t, settings.SyncPath, "v2-strict")
+	}
+	if settings.InactiveDeptFallbackId == nil || *settings.InactiveDeptFallbackId != 100 {
+		t.Fatalf("fallback id = %v, want 100", settings.InactiveDeptFallbackId)
 	}
 }

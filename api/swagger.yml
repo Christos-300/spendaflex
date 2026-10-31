@@ -6249,6 +6249,21 @@ components:
                 user has to rerun, preview or download the source image of a failed upload.
                 24-8760 (1 year); 0 means unset and falls back to the default.
               default: 720
+            syncPath:
+              type: string
+              description: >-
+                How an inactive department is sent on export. legacy-with-dept-fallback substitutes
+                inactiveDeptFallbackId when the department has no remap. v2-strict sends the stored
+                department id.
+              enum:
+                - legacy-with-dept-fallback
+                - v2-strict
+              default: legacy-with-dept-fallback
+            inactiveDeptFallbackId:
+              type: integer
+              description: >-
+                Department id substituted for an inactive department that has no remap when syncPath
+                is legacy-with-dept-fallback.
     UpsertSystemSettingsCommand:
       type: object
       required:
@@ -6336,6 +6351,21 @@ components:
             days). Omit the key entirely to leave the currently configured value unchanged.
           minimum: 0
           maximum: 8760
+        syncPath:
+          type: string
+          description: >-
+            How an inactive department is sent on export. Accepted values are
+            legacy-with-dept-fallback and v2-strict. Omit the key entirely to leave the currently
+            configured value unchanged.
+          enum:
+            - legacy-with-dept-fallback
+            - v2-strict
+        inactiveDeptFallbackId:
+          type: integer
+          description: >-
+            Department id substituted for an inactive department that has no remap when syncPath is
+            legacy-with-dept-fallback. Omit the key entirely to leave the currently configured value
+            unchanged.
     CheckEmailConnectivityCommand:
       type: object
       properties:

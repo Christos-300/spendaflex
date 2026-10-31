@@ -1,3 +1,5 @@
+This repository is the Spendaflex demo backend: a fictional demo forked from Receipt Wrangler.
+
 # Welcome to Receipt Wrangler
 
 This repository contains the Receipt Wrangler API, Desktop app and Mobile app.
