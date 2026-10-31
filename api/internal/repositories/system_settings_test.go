@@ -78,6 +78,8 @@ func TestUpdateSystemSettingsOmitsUnsentLifetimeColumns(t *testing.T) {
 				"`refresh_token_valid_for_hours`",
 				"`mcp_refresh_token_valid_for_hours`",
 				"`temp_file_retention_hours`",
+				"`sync_path`",
+				"`inactive_dept_fallback_id`",
 			},
 		},
 		"retention sent, lifetimes omitted": {

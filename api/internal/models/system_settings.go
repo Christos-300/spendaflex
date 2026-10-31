@@ -1,5 +1,10 @@
 package models
 
+const (
+	SyncPathLegacyWithDeptFallback = "legacy-with-dept-fallback"
+	SyncPathV2Strict               = "v2-strict"
+)
+
 type SystemSettings struct {
 	BaseModel
 	EnableLocalSignUp                   bool                      `json:"enableLocalSignUp" gorm:"default:false"`
@@ -46,4 +51,11 @@ type SystemSettings struct {
 	// guarantees a sane value, since AutoMigrate's back-fill of an added column on
 	// the pre-existing row is engine-dependent.
 	TempFileRetentionHours int `json:"tempFileRetentionHours" gorm:"default:720"`
+	// SyncPath selects how an inactive department is sent on export.
+	// legacy-with-dept-fallback substitutes InactiveDeptFallbackId when the
+	// department has no remap. v2-strict sends the stored department id.
+	SyncPath string `json:"syncPath" gorm:"default:legacy-with-dept-fallback"`
+	// InactiveDeptFallbackId is the department used for an inactive department
+	// that has no remap when SyncPath is legacy-with-dept-fallback.
+	InactiveDeptFallbackId *uint `json:"inactiveDeptFallbackId"`
 }
